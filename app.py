@@ -10,7 +10,7 @@ st.title("🛒 Chatbot de Historial de Compras")
 SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSWOB_6N4gok52hpQG5yjMJjXSlQt4wUsRDoydUf5MZtY9nXZ_A6GHDcUta9VA1vtB64d6pPh7FIRvX/pub?output=csv"
 
 # 2. Cargar los datos desde Google Sheets en tiempo real
-@st.cache_data(ttl=600) # El bot refresca la info cada 10 minutos por si agregaste datos nuevos
+@st.cache_data(ttl=600)
 def load_data():
     try:
         df = pd.read_csv(SHEET_URL)
@@ -22,7 +22,7 @@ def load_data():
 
 df = load_data()
 
-# 3. La inteligencia del buscador
+# 3. La inteligencia del buscador (¡MEJORADA!)
 def buscar_historial(query, df):
     if df.empty:
         return "La base de datos está vacía o no se pudo conectar."
@@ -31,24 +31,33 @@ def buscar_historial(query, df):
     df_clean = df.dropna(subset=['Descripcion'])
     productos_unicos = df_clean['Descripcion'].unique()
     
-    # Búsqueda difusa (Fuzzy Matching)
-    mejor_coincidencia, score = process.extractOne(query, productos_unicos)
+    # Búsqueda difusa: extraemos las 3 mejores coincidencias en lugar de solo 1
+    mejores_coincidencias = process.extract(query, productos_unicos, limit=3)
     
-    if score < 60:
+    # Filtramos solo las que tengan un puntaje de similitud aceptable (mayor a 55)
+    coincidencias_validas = [match[0] for match in mejores_coincidencias if match[1] >= 55]
+    
+    if not coincidencias_validas:
         return f"Mmm, no encontré nada parecido a '{query}'. ¿Podrías intentar con otra palabra clave?"
     
-    # Filtrar y ordenar
-    resultados = df_clean[df_clean['Descripcion'] == mejor_coincidencia]
-    ultimas_compras = resultados.sort_values(by='Fecha', ascending=False).head(3)
+    # Armar el texto visual de respuesta para cada coincidencia encontrada
+    respuesta = f"Encontré estas opciones para **'{query}'**:\n\n"
     
-    # Armar el texto visual de respuesta
-    respuesta = f"**Producto encontrado:** {mejor_coincidencia} \n\n**Últimas compras:**\n\n"
-    for _, row in ultimas_compras.iterrows():
-        fecha_str = row['Fecha'].strftime('%d/%m/%Y')
-        precio = row['Precio Unitario']
-        cant = row['Cantidad']
-        prov = row['Nombre']
-        respuesta += f"📅 **{fecha_str}** | 📦 Cant: {cant} | 💵 **USD {precio}** | 🏭 {prov}\n"
+    for producto in coincidencias_validas:
+        respuesta += f"### 📦 {producto}\n"
+        
+        # Filtrar y ordenar
+        resultados = df_clean[df_clean['Descripcion'] == producto]
+        ultimas_compras = resultados.sort_values(by='Fecha', ascending=False).head(3)
+        
+        for _, row in ultimas_compras.iterrows():
+            fecha_str = row['Fecha'].strftime('%d/%m/%Y')
+            precio = row['Precio Unitario']
+            cant = row['Cantidad']
+            prov = row['Nombre']
+            respuesta += f"- 📅 **{fecha_str}** | Cant: {cant} | 💵 **USD {precio}** | 🏭 {prov}\n"
+        
+        respuesta += "\n---\n" # Línea separadora entre productos
     
     return respuesta
 
